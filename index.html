@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FPS Battle Arena 3D — Tactical Modern Warfare</title>
+  <meta name="description" content="FPS 3D Tático Militar com Three.js, progressão de XP, patentes, Psycho Mode e servidor autoritativo em Node.js.">
+  <link rel="stylesheet" href="/client/style.css">
+</head>
+<body>
+  <!-- Canvas 3D do Three.js -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- Vinheta de Dano / Flash Vermelho Tático -->
+  <div id="damage-vignette" class="damage-vignette"></div>
+
+  <!-- Banner de Promoção de Patente (Level Up!) -->
+  <div id="levelup-modal" class="levelup-modal">
+    <div class="levelup-badge">⭐ PROMOÇÃO MILITAR ⭐</div>
+    <h1 id="levelup-title" class="levelup-title">PROMOÇÃO: NÍVEL 2</h1>
+    <p id="levelup-rank" class="levelup-rank">PATENTE CONCEDIDA: SOLDADO DE 1ª CLASSE [PFC]</p>
+  </div>
+
+  <!-- Modal de Fim de Partida / Vitória / MVP (Fase 6) -->
+  <div id="match-end-modal" class="match-end-modal">
+    <div class="match-end-card">
+      <div class="match-end-badge">★ RELATÓRIO PÓS-COMBATE ★</div>
+      <h1 id="match-end-title" class="match-end-title">🏆 VITÓRIA DA OPERAÇÃO 🏆</h1>
+      <p id="match-end-subtitle" class="match-end-subtitle">PARABÉNS! SEU ESQUADRÃO ATINGIU O LIMITE DE 10 ELIMINAÇÕES</p>
+
+      <!-- Destaque do MVP -->
+      <div class="mvp-highlight-box">
+        <span class="mvp-tag">OPERADOR MAIS VALIOSO (MVP)</span>
+        <div id="mvp-name" class="mvp-name">OPERADOR ALFA</div>
+      </div>
+
+      <!-- Resumo de Estatísticas da Partida -->
+      <div class="match-end-stats-grid">
+        <div class="end-stat-box">
+          <span class="end-stat-val" id="end-stat-kills">10</span>
+          <span class="end-stat-lbl">ELIMINAÇÕES</span>
+        </div>
+        <div class="end-stat-box">
+          <span class="end-stat-val" id="end-stat-accuracy">78%</span>
+          <span class="end-stat-lbl">PRECISÃO BALÍSTICA</span>
+        </div>
+        <div class="end-stat-box">
+          <span class="end-stat-val" id="end-stat-xp">+250 XP</span>
+          <span class="end-stat-lbl">RECOMPENSA DE COMBATE</span>
+        </div>
+      </div>
+
+      <div class="match-end-actions">
+        <button id="btn-restart-match" class="btn-restart-match">REAGRUPAR / NOVA OPERAÇÃO</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container de Ganhos de XP -->
+  <div id="xp-toast-container" class="xp-toast-container"></div>
+
+  <!-- Tela de Respawn Tático ao Morrer -->
+  <div id="respawn-screen" class="respawn-screen">
+    <div class="respawn-modal">
+      <h2 class="respawn-title">OPERADOR ABATIDO EM COMBATE</h2>
+      <p id="respawn-timer-text" class="respawn-timer">REAGRUPANDO EM 4S...</p>
+    </div>
+  </div>
+
+  <!-- Overlay da Luneta Militar Mil-Dot (M24 Sniper Scope) -->
+  <div id="sniper-scope-overlay" class="sniper-scope">
+    <div class="scope-reticle">
+      <div class="scope-crosshair-h"></div>
+      <div class="scope-crosshair-v"></div>
+      <div class="scope-rangefinder">
+        <div class="rf-line r1"><span>200</span></div>
+        <div class="rf-line r2"><span>400</span></div>
+        <div class="rf-line r3"><span>600</span></div>
+        <div class="rf-line r4"><span>800</span></div>
+      </div>
+      <div class="scope-mil-dot d1"></div>
+      <div class="scope-mil-dot d2"></div>
+      <div class="scope-mil-dot d3"></div>
+      <div class="scope-mil-dot d4"></div>
+    </div>
+  </div>
+
+  <!-- Camada Principal do HUD Militar -->
+  <div id="hud-layer">
+    <!-- Topo: Bússola Militar, Esquadrão, Psycho Mode e Botão Perfil -->
+    <div class="hud-top">
+      <div class="squad-badge-container">
+        <div id="player-squad-tag" class="squad-tag">OPERADOR ALFA</div>
+        <span class="room-status">SERVIDOR ONLINE // 30 HZ</span>
+      </div>
+
+      <!-- Centro Superior: Bússola & Indicador de Psycho Mode -->
+      <div class="top-center-cluster">
+        <div class="tactical-compass">
+          <span id="compass-degrees">0° N</span>
+        </div>
+
+        <!-- Indicador de Psycho Mode / Sobrecarga de Adrenalina -->
+        <div id="psycho-hud-container" class="psycho-hud-container">
+          <div class="psycho-header">
+            <span id="psycho-badge" class="psycho-badge">NÍVEL 1</span>
+            <span id="psycho-label" class="psycho-label">ADRENALINA FOCUS</span>
+          </div>
+          <div class="psycho-track">
+            <div id="psycho-timer-bar" class="psycho-timer-bar"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="top-right-panel">
+        <button id="btn-open-profile" class="btn-tactical-profile">[P] DOSSIÊ / PERFIL</button>
+        <div class="kills-display">KILLS: <span id="kill-score">0</span></div>
+      </div>
+    </div>
+
+    <!-- Centro: Retículo de Mira & Hitmarker -->
+    <div class="hud-center">
+      <div id="crosshair" class="crosshair">
+        <div class="crosshair-dot"></div>
+        <div class="crosshair-line top"></div>
+        <div class="crosshair-line bottom"></div>
+        <div class="crosshair-line left"></div>
+        <div class="crosshair-line right"></div>
+      </div>
+
+      <div id="hitmarker" class="hitmarker">
+        <div class="hitmarker-line tl"></div>
+        <div class="hitmarker-line tr"></div>
+        <div class="hitmarker-line bl"></div>
+        <div class="hitmarker-line br"></div>
+      </div>
+    </div>
+
+    <!-- Notificação de Eliminação no Killfeed -->
+    <div id="kill-notification" class="kill-notification">
+      <span id="kill-banner">🎯 ALVO ELIMINADO (+100 XP)</span>
+    </div>
+
+    <!-- Barra de Progresso de Recarga Mecânica -->
+    <div id="reload-container" class="reload-container">
+      <div class="reload-label">RECARREGANDO...</div>
+      <div class="reload-bar-bg">
+        <div id="reload-progress-bar" class="reload-progress-bar"></div>
+      </div>
+    </div>
+
+    <!-- Base: Integridade do Operador, Progressão/XP, Slots de Armas e Munição -->
+    <div class="hud-bottom">
+      <!-- Painel de Vida e Barra de XP -->
+      <div class="operator-status-panel">
+        <!-- Barra de Nível e XP -->
+        <div class="xp-hud-bar-container">
+          <div class="xp-hud-header">
+            <span id="hud-rank-tag" class="rank-tag">[PVT]</span>
+            <span id="hud-rank-name" class="rank-name">Recruta</span>
+            <span id="hud-xp-numbers" class="xp-numbers">0 / 100 XP</span>
+          </div>
+          <div class="xp-hud-track">
+            <div id="hud-xp-fill" class="xp-hud-fill"></div>
+          </div>
+        </div>
+
+        <!-- Painel de Vida -->
+        <div class="health-panel">
+          <div class="health-header">
+            <span class="health-title">INTEGRIDADE / HP</span>
+            <div class="health-numbers"><span id="health-val">100</span></div>
+          </div>
+          <div class="health-bar-bg">
+            <div id="health-fill" class="health-bar-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slots de Armas Militares -->
+      <div class="weapon-slots-container">
+        <div id="slot-1" class="weapon-slot active">
+          <span class="slot-num">1</span>
+          <span class="slot-name">M4A1</span>
+        </div>
+        <div id="slot-2" class="weapon-slot">
+          <span class="slot-num">2</span>
+          <span class="slot-name">MP5</span>
+        </div>
+        <div id="slot-3" class="weapon-slot">
+          <span class="slot-num">3</span>
+          <span class="slot-name">12 GAUGE</span>
+        </div>
+        <div id="slot-4" class="weapon-slot">
+          <span class="slot-num">4</span>
+          <span class="slot-name">M24</span>
+        </div>
+      </div>
+
+      <!-- Painel de Munição Tática -->
+      <div class="weapon-panel">
+        <div id="weapon-name" class="weapon-title">M4A1 TÁTICO</div>
+        <div class="ammo-display">
+          <span id="ammo-current" class="ammo-current">30</span>
+          <span id="ammo-reserve" class="ammo-reserve">/ 120</span>
+        </div>
+        <div id="reload-prompt" class="reload-prompt">APERTE [R] PARA RECARREGAR</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal do Dossiê do Operador / Perfil (P / ESC) -->
+  <div id="profile-modal" class="profile-modal">
+    <div class="profile-card">
+      <div class="profile-header">
+        <div class="dossier-title">
+          <h2>DOSSIÊ DO OPERADOR</h2>
+          <span id="profile-rank-tag" class="dossier-tag">PATENTE: PVT (NÍVEL 1)</span>
+        </div>
+        <button id="btn-close-profile" class="btn-close-dossier">✕ FECHAR</button>
+      </div>
+
+      <div class="dossier-body">
+        <!-- Identificação -->
+        <div class="dossier-section">
+          <label class="dossier-label">CODINOME DO OPERADOR</label>
+          <div class="name-edit-box">
+            <input id="profile-name-input" type="text" maxlength="20" placeholder="Insira seu codinome">
+            <button id="btn-save-name" class="btn-save-name">SALVAR</button>
+          </div>
+        </div>
+
+        <!-- Progresso de Carreira Militar -->
+        <div class="dossier-section">
+          <div class="rank-progress-header">
+            <span class="dossier-label">PATENTE ATUAL: <strong id="profile-rank-name">Recruta</strong></span>
+            <span id="profile-xp-text" class="xp-text-detail">0 / 100 XP</span>
+          </div>
+          <div class="dossier-xp-track">
+            <div id="profile-xp-bar" class="dossier-xp-fill"></div>
+          </div>
+        </div>
+
+        <!-- Quadro de Estatísticas Militares -->
+        <div class="dossier-section">
+          <label class="dossier-label">ESTATÍSTICAS DE COMBATE (HISTÓRICO ACUMULADO)</label>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-num" id="stat-kills">0</span>
+              <span class="stat-desc">ELIMINAÇÕES</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num" id="stat-deaths">0</span>
+              <span class="stat-desc">MORTES</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num" id="stat-kd">0.00</span>
+              <span class="stat-desc">K/D RATIO</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num" id="stat-headshots">0</span>
+              <span class="stat-desc">HEADSHOTS</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num" id="stat-accuracy">0%</span>
+              <span class="stat-desc">PRECISÃO</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-num" id="stat-damage">0</span>
+              <span class="stat-desc">DANO TOTAL</span>
+            </div>
+            <div class="stat-card full-span">
+              <span class="stat-num" id="stat-shots">0 / 0</span>
+              <span class="stat-desc">TIROS ACERTADOS / DISPARADOS</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dossier-footer">
+        <button id="btn-reset-profile" class="btn-reset-dossier">RESETAR PROGRESSO</button>
+        <span class="dossier-hint">Pressione [P] durante a partida para consultar o dossiê</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Placar Militar (TAB) -->
+  <div id="scoreboard-modal" class="scoreboard-modal">
+    <div class="scoreboard-content">
+      <div class="scoreboard-header">
+        <h2>TABELA DE OPERADORES DA PARTIDA</h2>
+      </div>
+      <div class="scoreboard-table-header">
+        <span>ESQUADRÃO</span>
+        <span>NOME</span>
+        <span>KILLS</span>
+        <span>MORTES</span>
+        <span>STATUS</span>
+      </div>
+      <div id="scoreboard-list" class="scoreboard-list">
+        <!-- Linhas geradas via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Tela Inicial / Pointer Lock -->
+  <div id="instructions-blocker">
+    <div class="modal-content">
+      <h1 class="game-title">TACTICAL BATTLE ARENA</h1>
+      <div class="phase-tag">FASE 6 — POLIMENTO FINAL & COMPLETO</div>
+      <p class="click-prompt">CLIQUE PARA ENTRAR EM COMBATE</p>
+      
+      <div class="controls-grid">
+        <div class="control-item">
+          <span class="key-badge">W A S D</span>
+          <span>Movimentação</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">MOUSE</span>
+          <span>Mirar</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">CLICK ESQ</span>
+          <span>Disparar</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">CLICK DIR</span>
+          <span>Visada Tática (ADS)</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">1 - 4 / SCROLL</span>
+          <span>Trocar de Arma</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">X</span>
+          <span>Estimulante / Psycho Mode</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">R</span>
+          <span>Recarregar</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">P</span>
+          <span>Dossiê / Perfil</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">TAB</span>
+          <span>Placar da Partida</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Script Principal -->
+  <script type="module" src="/client/main.js"></script>
+</body>
+</html>
