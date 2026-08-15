@@ -80,16 +80,17 @@ export class HUDSystem {
   }
 
   setPointerLockState(isLocked) {
-    if (this.elements.blocker) {
-      if (isLocked) {
+    if (!this.elements.blocker) return;
+
+    if (isLocked) {
+      this.hasGameStarted = true;
+      this.elements.blocker.classList.add('hidden');
+    } else {
+      // Se o jogo já iniciou, NUNCA mais exibe a tela escura de instruções inicial
+      if (this.hasGameStarted) {
         this.elements.blocker.classList.add('hidden');
       } else {
-        // Se o modal de perfil estiver ativo, mantém o blocker inicial escondido
-        if (this.elements.profileModal && this.elements.profileModal.classList.contains('active')) {
-          this.elements.blocker.classList.add('hidden');
-        } else {
-          this.elements.blocker.classList.remove('hidden');
-        }
+        this.elements.blocker.classList.remove('hidden');
       }
     }
   }
