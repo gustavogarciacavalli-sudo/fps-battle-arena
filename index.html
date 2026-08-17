@@ -3,13 +3,96 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FPS Battle Arena 3D — Tactical Modern Warfare</title>
-  <meta name="description" content="FPS 3D Tático Militar com Three.js, progressão de XP, patentes, Psycho Mode e servidor autoritativo em Node.js.">
+  <title>DEADLY SHOT — Tactical 3D FPS Arena</title>
+  <meta name="description" content="DEADLY SHOT: FPS 3D Tático Militar com Three.js, Lobby 3D, Multiplayer WebSocket, Progressão de Patentes e Psycho Mode.">
   <link rel="stylesheet" href="/client/style.css">
 </head>
 <body>
   <!-- Canvas 3D do Three.js -->
   <canvas id="game-canvas"></canvas>
+
+  <!-- ===================================================================
+       TELA DO LOBBY 3D: DEADLY SHOT (HOME)
+       =================================================================== -->
+  <div id="title-screen">
+    <!-- Topo do Lobby: Logotipo, Perfil e Ações Rápidas -->
+    <header class="title-header">
+      <div class="brand">
+        <span class="brand-main">DEADLY</span>
+        <span class="brand-sub">SHOT</span>
+      </div>
+
+      <div class="lobby-player-profile">
+        <div class="profile-info-block">
+          <div id="lobby-profile-name" class="profile-name">OPERADOR ALFA</div>
+          <div id="lobby-profile-rank" class="profile-rank">RECRUTA • NÍVEL 1 [PVT]</div>
+        </div>
+        <div class="lobby-xp-track">
+          <div id="lobby-xp-fill" class="lobby-xp-fill"></div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-lobby-profile" class="header-btn" title="Dossiê do Operador">📋 DOSSIÊ</button>
+        <button id="btn-lobby-audio" class="header-btn" title="Alternar Áudio">🔊 SOM</button>
+      </div>
+    </header>
+
+    <!-- Painel Lateral Esquerdo: Esquadrão Tático -->
+    <aside class="squad-panel">
+      <div class="panel-title">SEU ESQUADRÃO</div>
+
+      <div class="squad-player local">
+        <div class="player-avatar" id="local-avatar"></div>
+        <div class="squad-player-info">
+          <strong id="squad-local-name">OPERADOR ALFA</strong>
+          <span class="squad-tag-badge">LÍDER DO GRUPO (VOCÊ)</span>
+        </div>
+      </div>
+
+      <div id="squad-members-list" class="squad-members-list">
+        <!-- Membros remotos ou slots de convite -->
+        <button class="invite-player" id="btn-invite-1">+ CONVIDAR OPERADOR</button>
+        <button class="invite-player" id="btn-invite-2">+ CONVIDAR OPERADOR</button>
+        <button class="invite-player" id="btn-invite-3">+ CONVIDAR OPERADOR</button>
+      </div>
+    </aside>
+
+    <!-- Centro: Espaço Aberto para Visualização 3D do Operador -->
+    <section class="title-center">
+      <div class="character-indicator">
+        <span class="indicator-tag">OPERADOR ATIVO</span>
+        <div id="showcase-operator-name" class="character-name">OPERADOR ALFA</div>
+      </div>
+    </section>
+
+    <!-- Painel Lateral Direito: Evento em Destaque & Operação Especial -->
+    <aside class="news-panel">
+      <div class="panel-title">DESTAQUE DA TEMPORADA</div>
+      <div class="event-card">
+        <span class="event-badge">NOVA OPERAÇÃO</span>
+        <strong>BLACKOUT</strong>
+        <p>Domine a arena tática em combates CQB de alta intensidade com 4 armas militares balanceadas.</p>
+        <div class="event-footer">
+          <span class="server-badge">STATUS: ONLINE // 30 HZ</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Base do Lobby: Menu de Início de Partida -->
+    <div class="bottom-menu">
+      <button id="btn-open-customization" class="secondary-button">
+        PERSONALIZAR / DOSSIÊ [P]
+      </button>
+
+      <button id="btn-play-game" class="play-button">
+        ▶ JOGAR
+      </button>
+    </div>
+  </div>
+
+  <!-- Prompt de Retomada de Mira ao perder Pointer Lock durante o jogo -->
+  <div id="pause-prompt" class="pause-prompt">CLIQUE NA TELA PARA TRAVAR A MIRA</div>
 
   <!-- Vinheta de Dano / Flash Vermelho Tático -->
   <div id="damage-vignette" class="damage-vignette"></div>
@@ -21,7 +104,7 @@
     <p id="levelup-rank" class="levelup-rank">PATENTE CONCEDIDA: SOLDADO DE 1ª CLASSE [PFC]</p>
   </div>
 
-  <!-- Modal de Fim de Partida / Vitória / MVP (Fase 6) -->
+  <!-- Modal de Fim de Partida / Vitória / MVP -->
   <div id="match-end-modal" class="match-end-modal">
     <div class="match-end-card">
       <div class="match-end-badge">★ RELATÓRIO PÓS-COMBATE ★</div>
@@ -52,6 +135,7 @@
 
       <div class="match-end-actions">
         <button id="btn-restart-match" class="btn-restart-match">REAGRUPAR / NOVA OPERAÇÃO</button>
+        <button id="btn-return-lobby" class="secondary-button" style="margin-left: 12px;">RETORNAR AO LOBBY</button>
       </div>
     </div>
   </div>
@@ -85,12 +169,14 @@
     </div>
   </div>
 
-  <!-- Camada Principal do HUD Militar -->
+  <!-- ===================================================================
+       CAMADA PRINCIPAL DO HUD MILITAR (DURANTE A PARTIDA)
+       =================================================================== -->
   <div id="hud-layer">
     <!-- Topo: Bússola Militar, Esquadrão, Psycho Mode e Botão Perfil -->
     <div class="hud-top">
       <div class="squad-badge-container">
-        <div id="player-squad-tag" class="squad-tag">OPERADOR ALFA</div>
+        <div id="player-squad-tag" class="squad-tag">DEADLY SHOT // OPERADOR</div>
         <span class="room-status">SERVIDOR ONLINE // 30 HZ</span>
       </div>
 
@@ -299,54 +385,6 @@
       </div>
       <div id="scoreboard-list" class="scoreboard-list">
         <!-- Linhas geradas via JavaScript -->
-      </div>
-    </div>
-  </div>
-
-  <!-- Tela Inicial / Pointer Lock -->
-  <div id="instructions-blocker">
-    <div class="modal-content">
-      <h1 class="game-title">TACTICAL BATTLE ARENA</h1>
-      <div class="phase-tag">FASE 6 — POLIMENTO FINAL & COMPLETO</div>
-      <p class="click-prompt">CLIQUE PARA ENTRAR EM COMBATE</p>
-      
-      <div class="controls-grid">
-        <div class="control-item">
-          <span class="key-badge">W A S D</span>
-          <span>Movimentação</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">MOUSE</span>
-          <span>Mirar</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">CLICK ESQ</span>
-          <span>Disparar</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">CLICK DIR</span>
-          <span>Visada Tática (ADS)</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">1 - 4 / SCROLL</span>
-          <span>Trocar de Arma</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">X</span>
-          <span>Estimulante / Psycho Mode</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">R</span>
-          <span>Recarregar</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">P</span>
-          <span>Dossiê / Perfil</span>
-        </div>
-        <div class="control-item">
-          <span class="key-badge">TAB</span>
-          <span>Placar da Partida</span>
-        </div>
       </div>
     </div>
   </div>

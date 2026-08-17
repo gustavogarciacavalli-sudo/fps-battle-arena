@@ -14,6 +14,7 @@ export class HUDSystem {
       killNotification: document.getElementById('kill-notification'),
       killBanner: document.getElementById('kill-banner'),
       blocker: document.getElementById('instructions-blocker'),
+      pausePrompt: document.getElementById('pause-prompt'),
       sniperScope: document.getElementById('sniper-scope-overlay'),
       damageVignette: document.getElementById('damage-vignette'),
       respawnScreen: document.getElementById('respawn-screen'),
@@ -77,20 +78,36 @@ export class HUDSystem {
     this.vignetteTimeout = null;
     this.levelUpTimeout = null;
     this.kills = 0;
+
+    // O jogo já começa renderizado.
+    // Pointer Lock é separado do estado visual do jogo.
+    this.hasGameStarted = true;
+
+    // Garante que a tela inicial não fique cobrindo o canvas.
+    if (this.elements.blocker) {
+      this.elements.blocker.classList.add('hidden');
+    }
   }
 
   setPointerLockState(isLocked) {
     if (!this.elements.blocker) return;
 
+    // Pointer Lock NÃO controla mais se o jogo está visualmente iniciado.
+    // O canvas continua visível mesmo sem lock.
+    this.hasGameStarted = true;
+
+    this.elements.blocker.classList.add('hidden');
+
     if (isLocked) {
-      this.hasGameStarted = true;
-      this.elements.blocker.classList.add('hidden');
+      if (this.elements.pausePrompt) {
+        this.elements.pausePrompt.classList.remove('active');
+      }
     } else {
-      // Se o jogo já iniciou, NUNCA mais exibe a tela escura de instruções inicial
-      if (this.hasGameStarted) {
-        this.elements.blocker.classList.add('hidden');
-      } else {
-        this.elements.blocker.classList.remove('hidden');
+      // Se o dossiê e o fim de partida não estão abertos, mostra aviso discreto para retomar mira
+      const isProfileOpen = this.elements.profileModal && this.elements.profileModal.classList.contains('active');
+      const isMatchEndOpen = this.elements.matchEndModal && this.elements.matchEndModal.classList.contains('active');
+      if (!isProfileOpen && !isMatchEndOpen && this.elements.pausePrompt) {
+        this.elements.pausePrompt.classList.add('active');
       }
     }
   }
@@ -163,12 +180,27 @@ export class HUDSystem {
 
     if (isOpen) {
       this.elements.profileModal.classList.add('active');
+
+      // Dossiê nunca deve mostrar a tela inicial por cima.
       if (this.elements.blocker) {
         this.elements.blocker.classList.add('hidden');
+      }
+
+      if (this.elements.pausePrompt) {
+        this.elements.pausePrompt.classList.remove('active');
       }
       this.updateDossierStats(profile, rankInfo, accuracy, kd);
     } else {
       this.elements.profileModal.classList.remove('active');
+
+      // Nunca reativa o blocker aqui.
+      if (this.elements.blocker) {
+        this.elements.blocker.classList.add('hidden');
+      }
+
+      if (this.elements.pausePrompt) {
+        this.elements.pausePrompt.classList.add('active');
+      }
     }
   }
 

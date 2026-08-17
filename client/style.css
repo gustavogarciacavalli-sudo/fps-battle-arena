@@ -1211,103 +1211,402 @@ body, html {
 .score-row .col-status.dead { color: #ef4444; font-size: 12px; font-weight: 700; }
 
 /* ===================================================================
-   MODAL INICIAL
+   MODAL INICIAL E PAUSE PROMPT
    =================================================================== */
-#instructions-blocker {
+.pause-prompt {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.92), rgba(5, 8, 14, 0.98));
-  z-index: 50;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  backdrop-filter: blur(12px);
-  transition: opacity 0.2s ease, visibility 0.2s;
+  top: 14%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid #38bdf8;
+  color: #38bdf8;
+  padding: 8px 24px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  z-index: 15;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+  animation: pulsePause 1.4s infinite alternate;
 }
 
-#instructions-blocker.hidden {
+.pause-prompt.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+@keyframes pulsePause {
+  0% { transform: translateX(-50%) scale(1); }
+  100% { transform: translateX(-50%) scale(1.03); }
+}
+
+/* ===================================================================
+   TELA DO LOBBY 3D: DEADLY SHOT (MODERNO / AAA)
+   =================================================================== */
+#title-screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 310px 1fr 330px;
+  grid-template-rows: 95px 1fr 130px;
+  background: radial-gradient(circle at 50% 45%, rgba(14, 116, 144, 0.12), transparent 50%),
+              linear-gradient(180deg, rgba(2, 6, 23, 0.75) 0%, rgba(2, 6, 23, 0.45) 60%, rgba(2, 6, 23, 0.95) 100%);
+  color: white;
+  z-index: 50;
+  pointer-events: auto;
+  transition: opacity 0.45s ease, visibility 0.45s;
+}
+
+#title-screen.hidden {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
 }
 
-.modal-content {
-  text-align: center;
-  max-width: 620px;
-  padding: 36px 40px;
-  border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.94);
-  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
-}
-
-.game-title {
-  font-family: 'Teko', sans-serif;
-  font-size: 52px;
-  letter-spacing: 3px;
-  color: #f8fafc;
-  margin-bottom: 2px;
-}
-
-.phase-tag {
-  display: inline-block;
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid #38bdf8;
-  color: #38bdf8;
-  padding: 3px 14px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  margin-bottom: 20px;
-}
-
-.click-prompt {
-  font-size: 20px;
-  font-weight: 700;
-  color: #f8fafc;
-  margin-bottom: 22px;
-  animation: pulse 1.5s infinite;
-}
-
-.controls-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  text-align: left;
-  background: rgba(2, 6, 23, 0.7);
-  padding: 16px;
-  border-radius: 4px;
-  border: 1px solid rgba(71, 85, 105, 0.3);
-}
-
-.control-item {
+/* --- HEADER DO LOBBY --- */
+.title-header {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #cbd5e1;
+  justify-content: space-between;
+  padding: 16px 36px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(2, 6, 23, 0.75);
+  backdrop-filter: blur(16px);
 }
 
-.key-badge {
-  background: #334155;
-  border: 1px solid #64748b;
-  color: #38bdf8;
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 0.85;
+}
+
+.brand-main {
+  font-family: 'Teko', sans-serif;
+  font-size: 56px;
   font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 12px;
-  min-width: 28px;
+  letter-spacing: 4px;
+  color: #ffffff;
+  text-shadow: 0 0 25px rgba(255, 255, 255, 0.2);
+}
+
+.brand-sub {
+  font-family: 'Teko', sans-serif;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: #38bdf8;
+  text-shadow: 0 0 25px rgba(56, 189, 248, 0.6);
+}
+
+.lobby-player-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 260px;
+}
+
+.profile-info-block {
   text-align: center;
 }
 
+.profile-name {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #f8fafc;
+}
+
+.profile-rank {
+  font-size: 12px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 1px;
+}
+
+.lobby-xp-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(30, 41, 59, 0.8);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.lobby-xp-fill {
+  width: 15%;
+  height: 100%;
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+  transition: width 0.3s ease;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-btn {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: #cbd5e1;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.header-btn:hover {
+  background: rgba(30, 41, 59, 0.95);
+  color: #38bdf8;
+  border-color: #38bdf8;
+}
+
+/* --- PAINEL DO ESQUADRÃO (ESQUERDA) --- */
+.squad-panel,
+.news-panel {
+  margin: 24px 30px;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 6px;
+  backdrop-filter: blur(14px);
+  align-self: start;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #94a3b8;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding-bottom: 8px;
+}
+
+.squad-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(30, 41, 59, 0.85);
+  border-left: 4px solid #38bdf8;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.player-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #0284c7, #0f172a);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+}
+
+.squad-player-info strong {
+  display: block;
+  font-size: 14px;
+  color: #f8fafc;
+  letter-spacing: 0.5px;
+}
+
+.squad-tag-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.8px;
+  margin-top: 2px;
+}
+
+.squad-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invite-player {
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  background: rgba(2, 6, 23, 0.45);
+  color: #94a3b8;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.invite-player:hover {
+  border-color: #38bdf8;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+/* --- CENTRO (VITRINE DO OPERADOR) --- */
+.title-center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 20px;
+  pointer-events: none;
+}
+
+.character-indicator {
+  text-align: center;
+  background: rgba(2, 6, 23, 0.6);
+  padding: 8px 24px;
+  border-radius: 4px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  backdrop-filter: blur(8px);
+}
+
+.indicator-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #38bdf8;
+}
+
+.character-name {
+  font-family: 'Teko', sans-serif;
+  font-size: 32px;
+  letter-spacing: 3px;
+  color: #ffffff;
+  line-height: 1;
+}
+
+/* --- PAINEL DE EVENTOS (DIREITA) --- */
+.event-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: linear-gradient(160deg, rgba(2, 132, 199, 0.25), rgba(2, 6, 23, 0.95));
+  border-left: 3px solid #38bdf8;
+  border-radius: 4px;
+}
+
+.event-badge {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+
+.event-card strong {
+  font-family: 'Teko', sans-serif;
+  font-size: 36px;
+  letter-spacing: 2px;
+  color: #ffffff;
+  line-height: 0.9;
+}
+
+.event-card p {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.event-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.server-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #4ade80;
+  letter-spacing: 1px;
+}
+
+/* --- MENU INFERIOR (AÇÕES DO LOBBY) --- */
+.bottom-menu {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px 0 28px 0;
+  background: linear-gradient(180deg, transparent, rgba(2, 6, 23, 0.85));
+}
+
+.play-button {
+  min-width: 280px;
+  padding: 16px 44px;
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+  border: none;
+  border-radius: 4px;
+  color: #020617;
+  font-family: 'Teko', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  cursor: pointer;
+  box-shadow: 0 0 35px rgba(56, 189, 248, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.play-button:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 0 50px rgba(56, 189, 248, 0.75);
+}
+
+.play-button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.secondary-button {
+  padding: 16px 28px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+  color: #e2e8f0;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.secondary-button:hover {
+  background: rgba(30, 41, 59, 1);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  transform: translateY(-2px);
+}
+
+/* Animações e responsividade */
 @keyframes pulse {
   0% { transform: scale(1); opacity: 0.9; }
   50% { transform: scale(1.02); opacity: 1; }
   100% { transform: scale(1); opacity: 0.9; }
 }
+

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CharacterRig } from './CharacterRig.js';
 
 export class RemotePlayer {
   constructor(scene, data) {
@@ -12,16 +13,20 @@ export class RemotePlayer {
     this.isDead = !!data.isDead;
 
     this.group = new THREE.Group();
-    this.group.position.set(data.position.x, data.position.y - 1.65, data.position.z);
+    this.group.position.set(data.position.x, data.position.y - 1.79, data.position.z);
 
     // Variáveis de Interpolação (Lerp)
-    this.targetPosition = new THREE.Vector3(data.position.x, data.position.y - 1.65, data.position.z);
+    this.targetPosition = new THREE.Vector3(data.position.x, data.position.y - 1.79, data.position.z);
+    this.prevPosition = this.group.position.clone();
     this.targetYaw = (data.rotation && data.rotation.yaw) || 0;
     this.targetPitch = (data.rotation && data.rotation.pitch) || 0;
 
     this.hitMeshes = [];
     this.currentWeaponKey = data.weapon || 'm4a1';
     this.weaponMeshes = {};
+
+    this.isMoving = !!data.isMoving;
+    this.isSprinting = !!data.isSprinting;
 
     this._initMaterials();
     this._buildOperatorModel();
@@ -31,7 +36,6 @@ export class RemotePlayer {
   }
 
   _initMaterials() {
-    // Camuflagem e uniforme tático
     const camoColors = {
       black: 0x181e26,
       olive: 0x33402e,
@@ -48,7 +52,7 @@ export class RemotePlayer {
     });
 
     this.matVest = new THREE.MeshStandardMaterial({
-      color: 0x0f131a, // Colete preto tático
+      color: 0x0f131a,
       roughness: 0.7,
       metalness: 0.2
     });
@@ -59,152 +63,188 @@ export class RemotePlayer {
       metalness: 0.4
     });
 
-    this.matGoggles = new THREE.MeshStandardMaterial({
-      color: 0x0a0c10,
-      roughness: 0.1,
-      metalness: 0.9
-    });
-
     this.matSkin = new THREE.MeshStandardMaterial({
       color: 0xc8987b,
       roughness: 0.7,
       metalness: 0.1
     });
 
-    this.matArmband = new THREE.MeshBasicMaterial({
-      color: this.color
+    this.matBoot = new THREE.MeshStandardMaterial({
+      color: 0x121417,
+      roughness: 0.92
+    });
+
+    this.matMetal = new THREE.MeshStandardMaterial({
+      color: 0x45443f,
+      metalness: 0.75,
+      roughness: 0.4
     });
 
     this.matFlash = new THREE.MeshBasicMaterial({ color: 0xffffff });
   }
 
   _buildOperatorModel() {
-    // 1. Pernas com Coturnos Militares
-    const legGeo = new THREE.BoxGeometry(0.22, 0.75, 0.24);
-    this.leftLeg = new THREE.Mesh(legGeo, this.matUniform);
-    this.leftLeg.position.set(-0.16, 0.38, 0);
-    this.leftLeg.castShadow = true;
-    this.group.add(this.leftLeg);
+    // 1. Esqueleto Procedural Hierárquico (CharacterRig)
+    this.rig = new CharacterRig(this.group, {
+      uniform: this.matUniform,
+      vest: this.matVest,
+      skin: this.matSkin,
+      helmet: this.matHelmet,
+      boot: this.matBoot,
+      metal: this.matMetal
+    });
 
-    this.rightLeg = new THREE.Mesh(legGeo, this.matUniform);
-    this.rightLeg.position.set(0.16, 0.38, 0);
-    this.rightLeg.castShadow = true;
-    this.group.add(this.rightLeg);
+    // 2. Hitboxes Invisíveis de Alta Precisão Balística
+    const bodyHitbox = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.34, 0.55, 4, 8),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    bodyHitbox.position.y = 1.05;
+    bodyHitbox.userData = {
+      isRemotePlayer: true,
+      isHead: false,
+      playerId: this.id,
+      target: this
+    };
+    this.group.add(bodyHitbox);
+    this.hitMeshes.push(bodyHitbox);
+    this.bodyHitbox = bodyHitbox;
 
-    // Joelheiras de Proteção
-    const padGeo = new THREE.BoxGeometry(0.18, 0.14, 0.08);
-    const padL = new THREE.Mesh(padGeo, this.matVest);
-    padL.position.set(-0.16, 0.38, 0.12);
-    this.group.add(padL);
-    const padR = new THREE.Mesh(padGeo, this.matVest);
-    padR.position.set(0.16, 0.38, 0.12);
-    this.group.add(padR);
+    const headHitbox = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 12, 8),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    headHitbox.position.y = 1.75;
+    headHitbox.userData = {
+      isRemotePlayer: true,
+      isHead: true,
+      playerId: this.id,
+      target: this
+    };
+    this.group.add(headHitbox);
+    this.hitMeshes.push(headHitbox);
+    this.headHitbox = headHitbox;
 
-    // 2. Tronco e Colete Tático (Plate Carrier) - Hitbox de Corpo
-    const torsoGeo = new THREE.BoxGeometry(0.65, 0.7, 0.36);
-    this.torsoMesh = new THREE.Mesh(torsoGeo, this.matUniform);
-    this.torsoMesh.position.y = 1.1;
-    this.torsoMesh.castShadow = true;
-    this.torsoMesh.receiveShadow = true;
-    this.torsoMesh.userData = { isRemotePlayer: true, isHead: false, playerId: this.id, target: this };
-    this.group.add(this.torsoMesh);
-    this.hitMeshes.push(this.torsoMesh);
-
-    // Colete Tático Balístico sobreposto
-    const vestGeo = new THREE.BoxGeometry(0.68, 0.55, 0.40);
-    const vest = new THREE.Mesh(vestGeo, this.matVest);
-    vest.position.set(0, 1.15, 0);
-    vest.castShadow = true;
-    this.group.add(vest);
-
-    // Bolsos de Carregadores no Colete (Mag Pouches)
-    const pouchGeo = new THREE.BoxGeometry(0.14, 0.18, 0.08);
-    for (let i = -1; i <= 1; i++) {
-      const pouch = new THREE.Mesh(pouchGeo, this.matVest);
-      pouch.position.set(i * 0.16, 1.02, 0.22);
-      this.group.add(pouch);
-    }
-
-    // Braçadeira de Identificação de Esquadrão
-    const armbandGeo = new THREE.BoxGeometry(0.18, 0.1, 0.18);
-    const armband = new THREE.Mesh(armbandGeo, this.matArmband);
-    armband.position.set(-0.42, 1.25, 0);
-    this.group.add(armband);
-
-    // 3. Braços Táticos em Posição de Disparo
-    const armGeo = new THREE.BoxGeometry(0.16, 0.6, 0.16);
-    this.leftArm = new THREE.Mesh(armGeo, this.matUniform);
-    this.leftArm.position.set(-0.42, 1.1, 0.15);
-    this.leftArm.rotation.x = -0.6;
-    this.leftArm.castShadow = true;
-    this.group.add(this.leftArm);
-
-    this.rightArm = new THREE.Mesh(armGeo, this.matUniform);
-    this.rightArm.position.set(0.42, 1.1, 0.15);
-    this.rightArm.rotation.x = -0.6;
-    this.rightArm.castShadow = true;
-    this.group.add(this.rightArm);
-
-    // 4. Cabeça e Capacete Balístico Militar FAST - Hitbox de Headshot
-    const headGeo = new THREE.SphereGeometry(0.22, 16, 16);
-    this.headMesh = new THREE.Mesh(headGeo, this.matSkin);
-    this.headMesh.position.y = 1.68;
-    this.headMesh.castShadow = true;
-    this.headMesh.userData = { isRemotePlayer: true, isHead: true, playerId: this.id, target: this };
-    this.group.add(this.headMesh);
-    this.hitMeshes.push(this.headMesh);
-
-    // Capacete FAST
-    const helmetGeo = new THREE.SphereGeometry(0.24, 16, 16, 0, Math.PI * 2, 0, Math.PI / 1.7);
-    const helmet = new THREE.Mesh(helmetGeo, this.matHelmet);
-    helmet.position.set(0, 1.72, 0);
-    this.group.add(helmet);
-
-    // Óculos de Proteção Táticos (Combat Goggles)
-    const goggleGeo = new THREE.BoxGeometry(0.28, 0.08, 0.12);
-    const goggles = new THREE.Mesh(goggleGeo, this.matGoggles);
-    goggles.position.set(0, 1.68, 0.16);
-    this.group.add(goggles);
-
-    // 5. Armas 3D Visíveis nas Mãos do Operador
+    // 3. Armas em Terceira Pessoa
     this._buildThirdPersonWeapons();
     this.setWeapon(this.currentWeaponKey);
   }
 
   _buildThirdPersonWeapons() {
     this.weaponAnchor = new THREE.Group();
-    this.weaponAnchor.position.set(0.18, 1.05, 0.35);
+    this.weaponAnchor.position.set(0.18, 0.92, 0.36);
+    this.weaponAnchor.rotation.set(-0.15, -0.1, 0);
     this.group.add(this.weaponAnchor);
 
-    const matGun = new THREE.MeshStandardMaterial({ color: 0x111317, metalness: 0.9, roughness: 0.3 });
+    const metal = new THREE.MeshStandardMaterial({
+      color: 0x1a1c1d,
+      metalness: 0.88,
+      roughness: 0.28
+    });
 
-    // M4A1
-    const m4Group = new THREE.Group();
-    const m4Body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.09, 0.55), matGun);
-    m4Group.add(m4Body);
-    this.weaponMeshes.m4a1 = m4Group;
-    this.weaponAnchor.add(m4Group);
+    const polymer = new THREE.MeshStandardMaterial({
+      color: 0x111313,
+      metalness: 0.08,
+      roughness: 0.85
+    });
 
-    // MP5
-    const mp5Group = new THREE.Group();
-    const mp5Body = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.40), matGun);
-    mp5Group.add(mp5Body);
-    this.weaponMeshes.mp5 = mp5Group;
-    this.weaponAnchor.add(mp5Group);
+    const brown = new THREE.MeshStandardMaterial({
+      color: 0x4d3628,
+      roughness: 0.9
+    });
 
-    // Shotgun
-    const shotGroup = new THREE.Group();
-    const shotBody = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.09, 0.60), matGun);
-    shotGroup.add(shotBody);
-    this.weaponMeshes.shotgun = shotGroup;
-    this.weaponAnchor.add(shotGroup);
+    // --- M4A1 ---
+    const m4 = new THREE.Group();
+    const m4Body = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.10, 0.42), metal);
+    m4.add(m4Body);
 
-    // Sniper
-    const snipGroup = new THREE.Group();
-    const snipBody = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.09, 0.85), matGun);
-    snipGroup.add(snipBody);
-    this.weaponMeshes.sniper = snipGroup;
-    this.weaponAnchor.add(snipGroup);
+    const m4Handguard = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.09, 0.28), metal);
+    m4Handguard.position.z = -0.34;
+    m4.add(m4Handguard);
+
+    const m4Barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.32, 12), metal);
+    m4Barrel.rotation.x = Math.PI / 2;
+    m4Barrel.position.z = -0.62;
+    m4.add(m4Barrel);
+
+    const m4Grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.07), polymer);
+    m4Grip.position.set(0, -0.13, 0.10);
+    m4Grip.rotation.x = -0.3;
+    m4.add(m4Grip);
+
+    const m4Stock = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.10, 0.20), polymer);
+    m4Stock.position.z = 0.32;
+    m4.add(m4Stock);
+
+    this.weaponMeshes.m4a1 = m4;
+    this.weaponAnchor.add(m4);
+
+    // --- MP5 ---
+    const mp5 = new THREE.Group();
+    const mp5Body = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.10, 0.35), metal);
+    mp5.add(mp5Body);
+
+    const mp5Barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.18, 12), metal);
+    mp5Barrel.rotation.x = Math.PI / 2;
+    mp5Barrel.position.z = -0.28;
+    mp5.add(mp5Barrel);
+
+    const mp5Mag = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.18, 0.06), metal);
+    mp5Mag.position.set(0, -0.12, -0.02);
+    mp5Mag.rotation.x = 0.25;
+    mp5.add(mp5Mag);
+
+    this.weaponMeshes.mp5 = mp5;
+    this.weaponAnchor.add(mp5);
+
+    // --- SHOTGUN ---
+    const shotgun = new THREE.Group();
+    const shotBody = new THREE.BoxGeometry(0.075, 0.10, 0.38);
+    shotgun.add(new THREE.Mesh(shotBody, metal));
+
+    const shotBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.021, 0.48, 14), metal);
+    shotBarrel.rotation.x = Math.PI / 2;
+    shotBarrel.position.z = -0.42;
+    shotgun.add(shotBarrel);
+
+    const pump = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.18), polymer);
+    pump.position.set(0, -0.02, -0.27);
+    shotgun.add(pump);
+
+    const woodStock = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.11, 0.27), brown);
+    woodStock.position.z = 0.30;
+    shotgun.add(woodStock);
+
+    this.weaponMeshes.shotgun = shotgun;
+    this.weaponAnchor.add(shotgun);
+
+    // --- SNIPER ---
+    const sniper = new THREE.Group();
+    const sniperBody = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.10, 0.65), polymer);
+    sniper.add(sniperBody);
+
+    const sniperBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.015, 0.48, 14), metal);
+    sniperBarrel.rotation.x = Math.PI / 2;
+    sniperBarrel.position.z = -0.55;
+    sniper.add(sniperBarrel);
+
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.32, 16), metal);
+    scope.rotation.x = Math.PI / 2;
+    scope.position.set(0, 0.09, -0.12);
+    sniper.add(scope);
+
+    const scopeFront = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.05, 16), metal);
+    scopeFront.rotation.x = Math.PI / 2;
+    scopeFront.position.z = -0.29;
+    scopeFront.position.y = 0.09;
+    sniper.add(scopeFront);
+
+    this.weaponMeshes.sniper = sniper;
+    this.weaponAnchor.add(sniper);
+
+    Object.values(this.weaponMeshes).forEach(weapon => {
+      weapon.visible = false;
+    });
   }
 
   setWeapon(weaponKey) {
@@ -228,7 +268,7 @@ export class RemotePlayer {
     });
 
     this.nameplateSprite = new THREE.Sprite(spriteMat);
-    this.nameplateSprite.position.set(0, 2.25, 0);
+    this.nameplateSprite.position.set(0, 2.35, 0);
     this.nameplateSprite.scale.set(1.4, 0.35, 1);
     this.group.add(this.nameplateSprite);
 
@@ -278,11 +318,17 @@ export class RemotePlayer {
 
   updateState(data) {
     if (data.position) {
-      this.targetPosition.set(data.position.x, data.position.y - 1.65, data.position.z);
+      this.targetPosition.set(data.position.x, data.position.y - 1.79, data.position.z);
     }
     if (data.rotation) {
       this.targetYaw = data.rotation.yaw;
       this.targetPitch = data.rotation.pitch;
+    }
+    if (data.isMoving !== undefined) {
+      this.isMoving = !!data.isMoving;
+    }
+    if (data.isSprinting !== undefined) {
+      this.isSprinting = !!data.isSprinting;
     }
     if (data.weapon && data.weapon !== this.currentWeaponKey) {
       this.setWeapon(data.weapon);
@@ -298,15 +344,17 @@ export class RemotePlayer {
   }
 
   playDamageFlash() {
-    const origBody = this.torsoMesh.material;
-    const origHead = this.headMesh.material;
-    this.torsoMesh.material = this.matFlash;
-    this.headMesh.material = this.matFlash;
+    if (this.rig && this.rig.torsoMesh && this.rig.headMesh) {
+      const origBody = this.rig.torsoMesh.material;
+      const origHead = this.rig.headMesh.material;
+      this.rig.torsoMesh.material = this.matFlash;
+      this.rig.headMesh.material = this.matFlash;
 
-    setTimeout(() => {
-      this.torsoMesh.material = origBody;
-      this.headMesh.material = origHead;
-    }, 60);
+      setTimeout(() => {
+        if (this.rig.torsoMesh) this.rig.torsoMesh.material = origBody;
+        if (this.rig.headMesh) this.rig.headMesh.material = origHead;
+      }, 60);
+    }
   }
 
   update(deltaTime) {
@@ -316,9 +364,35 @@ export class RemotePlayer {
     }
     this.group.visible = true;
 
-    // Interpolação suave de posição e rotação (Lerp a 60 FPS)
-    this.group.position.lerp(this.targetPosition, deltaTime * 18);
-    this.group.rotation.y = THREE.MathUtils.lerp(this.group.rotation.y, this.targetYaw, deltaTime * 18);
+    // 1. Interpolação suave exponencial de posição
+    this.group.position.lerp(
+      this.targetPosition,
+      1 - Math.exp(-14 * deltaTime)
+    );
+
+    // 2. Interpolação suave de rotação angular com menor caminho (Shortest Angular Delta)
+    let yawDelta = this.targetYaw - this.group.rotation.y;
+    yawDelta = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta));
+    this.group.rotation.y += yawDelta * (1 - Math.exp(-15 * deltaTime));
+
+    // 3. Cálculo de deslocamento e estados
+    const displacement = this.group.position.distanceTo(this.prevPosition);
+    const isActuallyMoving = this.isMoving || displacement > deltaTime * 0.5;
+    const isActuallySprinting = this.isSprinting || (isActuallyMoving && displacement > deltaTime * 5.0);
+
+    // 4. Animação de Esqueleto Procedural no Rig
+    if (this.rig) {
+      this.rig.update(deltaTime, {
+        moving: isActuallyMoving,
+        sprinting: isActuallySprinting,
+        aiming: false,
+        grounded: true,
+        verticalVelocity: 0,
+        turn: yawDelta
+      });
+    }
+
+    this.prevPosition.copy(this.group.position);
   }
 
   destroy() {

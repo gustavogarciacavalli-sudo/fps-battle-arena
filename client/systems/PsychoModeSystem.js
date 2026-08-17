@@ -21,7 +21,7 @@ const PsychoShader = {
     varying vec2 vUv;
     void main() {
       vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      gl_Position = vec4(position, 1.0);
     }
   `,
 
@@ -142,6 +142,7 @@ export class PsychoModeSystem {
 
   _initComposer() {
     this.composer = new EffectComposer(this.renderer);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
     
     // Pass 1: Renderização da cena principal
     this.renderPass = new RenderPass(this.scene, this.camera);

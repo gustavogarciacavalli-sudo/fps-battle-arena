@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { CharacterRig } from '../systems/CharacterRig.js';
+import { BotAI } from '../systems/BotAI.js';
 
 export class TargetDummy {
   constructor(scene, position = new THREE.Vector3(0, 0, -10)) {
@@ -8,109 +10,115 @@ export class TargetDummy {
     this.currentHp = this.maxHp;
     this.isDead = false;
     this.respawnTimer = 0;
-    this.respawnDuration = 3.0; // segundos para reaparecer
+    this.respawnDuration = 4.0;
+
+    this.isBot = true;
+    this.isMoving = false;
+    this.isSprinting = false;
 
     this.group = new THREE.Group();
     this.group.position.copy(this.initialPosition);
 
-    this.hitMeshes = []; // Array de meshes interceptáveis pelo Raycast
+    this.hitMeshes = [];
+    this.onBotAttack = null;
+    this.getVisibilityObjects = null;
 
     this._initMaterials();
     this._buildModel();
     this._createHealthBar();
 
+    // Inteligência Artificial Tática
+    this.botAI = new BotAI(this);
+
     this.scene.add(this.group);
   }
 
   _initMaterials() {
-    this.matBase = new THREE.MeshStandardMaterial({
-      color: 0x334155,
-      roughness: 0.6,
-      metalness: 0.5
+    this.matUniform = new THREE.MeshStandardMaterial({
+      color: 0x475569, // Cinza urbano tático
+      roughness: 0.85,
+      metalness: 0.1
     });
 
-    this.matBody = new THREE.MeshStandardMaterial({
-      color: 0xef4444, // Vermelho de alvo
-      roughness: 0.4,
-      metalness: 0.3
-    });
-
-    this.matHead = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b, // Amarelo/Laranja na cabeça (indicando headshot)
-      roughness: 0.3,
-      metalness: 0.4
-    });
-
-    this.matJoints = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      roughness: 0.8,
+    this.matVest = new THREE.MeshStandardMaterial({
+      color: 0x0f172a, // Colete escuro
+      roughness: 0.7,
       metalness: 0.2
     });
 
-    // Material de flash ao tomar dano
+    this.matHelmet = new THREE.MeshStandardMaterial({
+      color: 0xef4444, // Capacete vermelho para identificação de alvo
+      roughness: 0.45,
+      metalness: 0.3
+    });
+
+    this.matSkin = new THREE.MeshStandardMaterial({
+      color: 0xc8987b,
+      roughness: 0.8,
+      metalness: 0.1
+    });
+
+    this.matBoot = new THREE.MeshStandardMaterial({
+      color: 0x111317,
+      roughness: 0.9
+    });
+
+    this.matMetal = new THREE.MeshStandardMaterial({
+      color: 0x22262d,
+      metalness: 0.8,
+      roughness: 0.3
+    });
+
     this.matFlash = new THREE.MeshBasicMaterial({ color: 0xffffff });
   }
 
   _buildModel() {
-    // 1. Base no chão
-    const baseGeo = new THREE.CylinderGeometry(0.6, 0.7, 0.15, 16);
-    const baseMesh = new THREE.Mesh(baseGeo, this.matBase);
-    baseMesh.position.y = 0.075;
-    baseMesh.castShadow = true;
-    this.group.add(baseMesh);
+    // 1. Rig Procedural do Operador Bot
+    this.rig = new CharacterRig(this.group, {
+      uniform: this.matUniform,
+      vest: this.matVest,
+      skin: this.matSkin,
+      helmet: this.matHelmet,
+      boot: this.matBoot,
+      metal: this.matMetal
+    });
 
-    // 2. Haste central / suporte
-    const postGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 8);
-    const postMesh = new THREE.Mesh(postGeo, this.matJoints);
-    postMesh.position.y = 0.55;
-    postMesh.castShadow = true;
-    this.group.add(postMesh);
+    // 2. Hitbox Invisível de Corpo (Capsule)
+    const bodyHitbox = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.34, 0.55, 4, 8),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    bodyHitbox.position.y = 1.05;
+    bodyHitbox.userData = { isDummy: true, isHead: false, target: this };
+    this.group.add(bodyHitbox);
+    this.hitMeshes.push(bodyHitbox);
+    this.torsoMesh = bodyHitbox;
 
-    // 3. Tronco / Corpo (Alvo Principal)
-    const torsoGeo = new THREE.BoxGeometry(0.7, 0.9, 0.35);
-    this.torsoMesh = new THREE.Mesh(torsoGeo, this.matBody);
-    this.torsoMesh.position.y = 1.35;
-    this.torsoMesh.castShadow = true;
-    this.torsoMesh.receiveShadow = true;
-    this.torsoMesh.userData = { isDummy: true, isHead: false, target: this };
-    this.group.add(this.torsoMesh);
-    this.hitMeshes.push(this.torsoMesh);
+    // 3. Hitbox Invisível de Cabeça (Sphere - Headshot Target)
+    const headHitbox = new THREE.Mesh(
+      new THREE.SphereGeometry(0.24, 12, 8),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    headHitbox.position.y = 1.75;
+    headHitbox.userData = { isDummy: true, isHead: true, target: this };
+    this.group.add(headHitbox);
+    this.hitMeshes.push(headHitbox);
+    this.headMesh = headHitbox;
 
-    // 4. Braços de Manequim
-    const armGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.7, 8);
-    const leftArm = new THREE.Mesh(armGeo, this.matJoints);
-    leftArm.position.set(-0.48, 1.3, 0);
-    leftArm.rotation.z = 0.2;
-    leftArm.castShadow = true;
-    this.group.add(leftArm);
+    // 4. Arma 3D na mão do Bot
+    const gunGroup = new THREE.Group();
+    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.09, 0.42), this.matMetal);
+    gunGroup.add(gunBody);
 
-    const rightArm = new THREE.Mesh(armGeo, this.matJoints);
-    rightArm.position.set(0.48, 1.3, 0);
-    rightArm.rotation.z = -0.2;
-    rightArm.castShadow = true;
-    this.group.add(rightArm);
+    const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.28, 8), this.matMetal);
+    gunBarrel.rotation.x = Math.PI / 2;
+    gunBarrel.position.z = -0.32;
+    gunGroup.add(gunBarrel);
 
-    // 5. Pescoço
-    const neckGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.15, 8);
-    const neck = new THREE.Mesh(neckGeo, this.matJoints);
-    neck.position.y = 1.85;
-    this.group.add(neck);
-
-    // 6. Cabeça (Headshot Target!)
-    const headGeo = new THREE.SphereGeometry(0.25, 16, 16);
-    this.headMesh = new THREE.Mesh(headGeo, this.matHead);
-    this.headMesh.position.y = 2.1;
-    this.headMesh.castShadow = true;
-    this.headMesh.userData = { isDummy: true, isHead: true, target: this };
-    this.group.add(this.headMesh);
-    this.hitMeshes.push(this.headMesh);
-
-    // Faixa/Olho estilizado na cabeça
-    const visorGeo = new THREE.BoxGeometry(0.3, 0.08, 0.15);
-    const visorMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
-    const visor = new THREE.Mesh(visorGeo, visorMat);
-    visor.position.set(0, 2.1, 0.2);
-    this.group.add(visor);
+    gunGroup.position.set(0.18, 0.92, 0.35);
+    gunGroup.rotation.set(-0.15, -0.1, 0);
+    this.group.add(gunGroup);
+    this.gunMesh = gunGroup;
   }
 
   _createHealthBar() {
@@ -127,7 +135,7 @@ export class TargetDummy {
     });
 
     this.healthSprite = new THREE.Sprite(spriteMat);
-    this.healthSprite.position.set(0, 2.65, 0);
+    this.healthSprite.position.set(0, 2.35, 0);
     this.healthSprite.scale.set(1.4, 0.28, 1);
     this.group.add(this.healthSprite);
 
@@ -142,20 +150,19 @@ export class TargetDummy {
     ctx.clearRect(0, 0, w, h);
 
     // Fundo
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
     ctx.roundRect(0, 0, w, h, 8);
     ctx.fill();
 
     // Borda
-    ctx.strokeStyle = '#38bdf8';
+    ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 3;
     ctx.stroke();
 
     // Barra de Vida
     const healthPercent = Math.max(0, this.currentHp / this.maxHp);
     const barWidth = (w - 12) * healthPercent;
-    
-    // Cor dinâmica: Verde -> Amarelo -> Vermelho
+
     if (healthPercent > 0.5) {
       ctx.fillStyle = '#22c55e';
     } else if (healthPercent > 0.25) {
@@ -171,7 +178,7 @@ export class TargetDummy {
     ctx.font = 'bold 20px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${Math.round(this.currentHp)} / ${this.maxHp}`, w / 2, h / 2);
+    ctx.fillText(`BOT INIMIGO - ${Math.round(this.currentHp)} HP`, w / 2, h / 2);
 
     this.healthTexture.needsUpdate = true;
   }
@@ -182,40 +189,41 @@ export class TargetDummy {
     this.currentHp = Math.max(0, this.currentHp - amount);
     this._updateHealthCanvas();
 
-    // Efeito de Flash Vermelho/Branco temporário
-    this._triggerHitFlash(isHeadshot);
+    // Flash ao ser atingido
+    this._triggerHitFlash();
 
-    // Balanço físico ao ser atingido
-    this.group.rotation.x = 0.15;
+    // Alerta o bot sobre o alvo ao tomar tiro
+    if (this.botAI) {
+      this.botAI.state = 'attack';
+    }
 
     if (this.currentHp <= 0) {
       this.die(onKillCallback);
     }
   }
 
-  _triggerHitFlash(isHeadshot) {
-    const origBodyMat = this.torsoMesh.material;
-    const origHeadMat = this.headMesh.material;
+  _triggerHitFlash() {
+    if (this.rig && this.rig.torsoMesh && this.rig.headMesh) {
+      const origTorso = this.rig.torsoMesh.material;
+      const origHead = this.rig.headMesh.material;
+      this.rig.torsoMesh.material = this.matFlash;
+      this.rig.headMesh.material = this.matFlash;
 
-    this.torsoMesh.material = this.matFlash;
-    this.headMesh.material = this.matFlash;
-
-    setTimeout(() => {
-      if (!this.isDead) {
-        this.torsoMesh.material = origBodyMat;
-        this.headMesh.material = origHeadMat;
-      }
-    }, 60);
+      setTimeout(() => {
+        if (!this.isDead && this.rig) {
+          if (this.rig.torsoMesh) this.rig.torsoMesh.material = origTorso;
+          if (this.rig.headMesh) this.rig.headMesh.material = origHead;
+        }
+      }, 60);
+    }
   }
 
   die(onKillCallback) {
     if (this.isDead) return;
     this.isDead = true;
     this.respawnTimer = this.respawnDuration;
-
-    // Desabilita barra de vida e gira/tumba o boneco
     this.healthSprite.visible = false;
-    
+
     if (onKillCallback) {
       onKillCallback();
     }
@@ -228,14 +236,16 @@ export class TargetDummy {
     this.healthSprite.visible = true;
     this.group.position.copy(this.initialPosition);
     this.group.rotation.set(0, 0, 0);
-    this.group.scale.set(1, 1, 1);
-    this.torsoMesh.material = this.matBody;
-    this.headMesh.material = this.matHead;
+
+    if (this.botAI) {
+      this.botAI.state = 'patrol';
+      this.botAI.changePatrolTarget();
+    }
   }
 
-  update(deltaTime) {
+  update(deltaTime, player = null) {
     if (this.isDead) {
-      // Animação de colapso/morte
+      // Animação de colapso ao morrer
       if (this.group.rotation.x > -Math.PI / 2) {
         this.group.rotation.x -= deltaTime * 4;
       }
@@ -247,11 +257,29 @@ export class TargetDummy {
       if (this.respawnTimer <= 0) {
         this.respawn();
       }
-    } else {
-      // Recuperação suave do recuo de impacto
-      if (this.group.rotation.x > 0.001) {
-        this.group.rotation.x = THREE.MathUtils.lerp(this.group.rotation.x, 0, deltaTime * 8);
-      }
+      return;
+    }
+
+    this.isMoving = false;
+
+    // 1. Atualização da IA do Bot
+    if (this.botAI && player) {
+      this.botAI.update(deltaTime, player);
+    }
+
+    // 2. Animação de Rig Esquelético
+    if (this.rig) {
+      const isAttacking = this.botAI ? this.botAI.state === 'attack' : false;
+      const isChasing = this.botAI ? this.botAI.state === 'chase' : false;
+
+      this.rig.update(deltaTime, {
+        moving: this.isMoving,
+        sprinting: isChasing,
+        aiming: isAttacking,
+        grounded: true,
+        verticalVelocity: 0,
+        turn: 0
+      });
     }
   }
 }

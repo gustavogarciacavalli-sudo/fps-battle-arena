@@ -18,6 +18,8 @@ export class WeaponSystem {
     // Recuo e Balanço
     this.recoilOffset = new THREE.Vector3();
     this.recoilRotation = new THREE.Euler();
+    this.shotKick = new THREE.Vector3();
+    this.shotRotation = new THREE.Vector3();
     this.swayOffset = new THREE.Vector2();
 
     this.bobTime = 0;
@@ -37,9 +39,30 @@ export class WeaponSystem {
     this.currentWeaponKey = 'm4a1';
     this.weaponModels = {};
 
+    this.flashTimeout = null;
+    this.shotParticleLife = 0;
+
     this._initAllTacticalWeapons();
     this._createMuzzleFlash();
+    this._initShotParticles();
     this.showWeaponModel('m4a1');
+  }
+
+  _initShotParticles() {
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(36);
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const material = new THREE.PointsMaterial({
+      color: 0xffc77a,
+      size: 0.035,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    });
+
+    this.shotParticles = new THREE.Points(geometry, material);
+    this.viewmodelGroup.add(this.shotParticles);
   }
 
   _initAllTacticalWeapons() {
@@ -352,29 +375,46 @@ export class WeaponSystem {
   }
 
   triggerMuzzleFlash() {
-    this.flashMat.opacity = 0.95;
-    this.muzzleFlashMesh.rotation.z = Math.random() * Math.PI;
+    this.flashMat.opacity = 1.0;
     this.muzzleFlashMesh.scale.set(
-      0.8 + Math.random() * 0.4,
-      0.8 + Math.random() * 0.4,
-      1.4 + Math.random() * 0.5
+      0.9 + Math.random() * 0.35,
+      0.9 + Math.random() * 0.35,
+      1.5 + Math.random() * 0.7
     );
-    this.muzzleLight.intensity = 4.0;
+    this.muzzleFlashMesh.rotation.z = Math.random() * Math.PI;
+    this.muzzleLight.intensity = 7;
 
-    setTimeout(() => {
+    if (this.activeMuzzlePoint && this.shotParticles) {
+      const pos = this.activeMuzzlePoint.position;
+      const attr = this.shotParticles.geometry.attributes.position;
+      for (let i = 0; i < 36; i += 3) {
+        attr.array[i] = pos.x + (Math.random() - 0.5) * 0.08;
+        attr.array[i + 1] = pos.y + (Math.random() - 0.5) * 0.08;
+        attr.array[i + 2] = pos.z - Math.random() * 0.15;
+      }
+      attr.needsUpdate = true;
+      this.shotParticles.material.opacity = 0.85;
+      this.shotParticleLife = 0.06;
+    }
+
+    clearTimeout(this.flashTimeout);
+    this.flashTimeout = setTimeout(() => {
       if (this.flashMat) this.flashMat.opacity = 0;
       if (this.muzzleLight) this.muzzleLight.intensity = 0;
-    }, 45);
+    }, 55);
   }
 
   triggerRecoil(kick = { x: 0.01, y: 0.028, z: 0.075 }) {
     this.recoilOffset.z += kick.z;
-    this.recoilOffset.y += kick.y * 0.4;
+    this.recoilOffset.y += kick.y;
     this.recoilOffset.x += (Math.random() - 0.5) * kick.x;
 
-    this.recoilRotation.x += kick.y * 2.2;
-    this.recoilRotation.y += (Math.random() - 0.5) * kick.x * 2.0;
-    this.recoilRotation.z += (Math.random() - 0.5) * kick.x * 1.5;
+    this.recoilRotation.x += kick.y * 2.6;
+    this.recoilRotation.y += (Math.random() - 0.5) * kick.x * 2.4;
+    this.recoilRotation.z += (Math.random() - 0.5) * kick.x * 1.8;
+
+    // Pequeno deslocamento vertical adicional
+    this.shotKick.y += kick.y * 0.25;
   }
 
   startReload(duration = 1.8) {
@@ -400,7 +440,16 @@ export class WeaponSystem {
   }
 
   update(deltaTime, mouseDelta = { deltaX: 0, deltaY: 0 }, isMoving = false, isSprinting = false) {
-    // 1. Recuperação de Recuo
+    // 0. Atualização de faíscas da boca da arma
+    if (this.shotParticleLife > 0) {
+      this.shotParticleLife -= deltaTime;
+      if (this.shotParticleLife <= 0 && this.shotParticles) {
+        this.shotParticles.material.opacity = 0;
+      }
+    }
+
+    // 1. Recuperação de Recuo e Shot Kick
+    this.shotKick.y = THREE.MathUtils.damp(this.shotKick.y, 0, 18, deltaTime);
     this.recoilOffset.lerp(new THREE.Vector3(0, 0, 0), deltaTime * 16);
     this.recoilRotation.x = THREE.MathUtils.lerp(this.recoilRotation.x, 0, deltaTime * 16);
     this.recoilRotation.y = THREE.MathUtils.lerp(this.recoilRotation.y, 0, deltaTime * 16);
@@ -446,35 +495,63 @@ export class WeaponSystem {
       }
     }
 
-    // 6. Recarga
+    // 6. Recarga em 4 Fases (Baixa, Carregador, Inserção, Retorno)
     let reloadOffsetY = 0;
     let reloadRotZ = 0;
     let reloadRotX = 0;
 
     if (this.isReloading) {
       this.reloadProgress += deltaTime / this.reloadDuration;
+      const p = this.reloadProgress;
+
+      if (p < 0.22) {
+        // Fase 1: Arma desce
+        const t = p / 0.22;
+        reloadOffsetY = THREE.MathUtils.lerp(0, -0.28, t);
+        reloadRotZ = THREE.MathUtils.lerp(0, 0.18, t);
+        reloadRotX = THREE.MathUtils.lerp(0, -0.15, t);
+      } else if (p < 0.48) {
+        // Fase 2: Momento do carregador / inclinação
+        const t = (p - 0.22) / 0.26;
+        reloadOffsetY = -0.28;
+        reloadRotZ = THREE.MathUtils.lerp(0.18, 0.48, t);
+        reloadRotX = -0.15;
+      } else if (p < 0.70) {
+        // Fase 3: Inserção do novo carregador com snap
+        const t = (p - 0.48) / 0.22;
+        reloadOffsetY = -0.28 + Math.sin(t * Math.PI) * 0.04;
+        reloadRotZ = 0.48;
+        reloadRotX = -0.15;
+      } else {
+        // Fase 4: Volta para a posição original
+        const t = (p - 0.70) / 0.30;
+        reloadOffsetY = THREE.MathUtils.lerp(-0.28, 0, t);
+        reloadRotZ = THREE.MathUtils.lerp(0.48, 0, t);
+        reloadRotX = THREE.MathUtils.lerp(-0.15, 0, t);
+      }
+
       if (this.reloadProgress >= 1.0) {
         this.isReloading = false;
         this.reloadProgress = 0;
-      } else {
-        const phase = Math.sin(this.reloadProgress * Math.PI);
-        reloadOffsetY = -phase * 0.22;
-        reloadRotZ = phase * 0.45;
-        reloadRotX = -phase * 0.25;
       }
     }
 
-    // 7. Posição e Rotação Finais
+    // 7. Postura de Corrida Tática (Sprint Posture)
+    const sprintDrop = isSprinting && !this.isAiming ? -0.14 : 0;
+    const sprintForward = isSprinting && !this.isAiming ? 0.12 : 0;
+    const sprintRotation = isSprinting && !this.isAiming ? 0.22 : 0;
+
+    // 8. Posição e Rotação Finais
     this.viewmodelGroup.position.set(
       this.currentRestPosition.x + this.recoilOffset.x + this.swayOffset.x + bobX,
-      this.currentRestPosition.y + this.recoilOffset.y + this.swayOffset.y + bobY + reloadOffsetY + switchOffsetY,
-      this.currentRestPosition.z + this.recoilOffset.z
+      this.currentRestPosition.y + this.recoilOffset.y + this.shotKick.y + this.swayOffset.y + bobY + reloadOffsetY + switchOffsetY + sprintDrop,
+      this.currentRestPosition.z + this.recoilOffset.z + sprintForward
     );
 
     this.viewmodelGroup.rotation.set(
       this.baseRotation.x + this.recoilRotation.x + reloadRotX,
       this.baseRotation.y + this.recoilRotation.y + this.swayOffset.x * 1.5,
-      this.baseRotation.z + this.recoilRotation.z + reloadRotZ + bobX * 0.5
+      this.baseRotation.z + this.recoilRotation.z + reloadRotZ + bobX * 0.5 + sprintRotation
     );
   }
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WEAPONS_CONFIG, WEAPON_SLOTS } from '../config/weapons.config.js';
+import { WEAPON_BALLISTICS } from '../config/weapons.ballistics.js';
 
 export class CombatSystem {
   constructor(scene, camera, weaponSystem, audioSystem, hudSystem, networkManager, playerManager, profileManager) {
@@ -11,6 +12,8 @@ export class CombatSystem {
     this.networkManager = networkManager;
     this.playerManager = playerManager;
     this.profileManager = profileManager;
+
+    this.ballisticsSystem = null;
 
     this.currentWeaponIndex = 0;
     this.currentWeaponKey = WEAPON_SLOTS[0];
@@ -136,7 +139,7 @@ export class CombatSystem {
     // Ejeção física de cápsula de cartucho 3D
     this._spawnShellCasing();
 
-    // Disparo por Raycasting
+    // Disparo Balístico ou Hitscan
     const pelletCount = this.weaponConfig.pellets || 1;
     for (let i = 0; i < pelletCount; i++) {
       this._executeSingleRay(i);
@@ -152,12 +155,10 @@ export class CombatSystem {
     const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation);
 
     const casing = new THREE.Mesh(this.shellGeo, this.shellMat);
-    // Posição de ejeção ligeiramente atrás da boca da arma e à direita
     casing.position.copy(muzzlePos).addScaledVector(forward, -0.3).addScaledVector(right, 0.08);
     casing.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     this.scene.add(casing);
 
-    // Velocidade de ejeção lateral para a direita e para cima
     const velocity = new THREE.Vector3()
       .addScaledVector(right, 1.8 + Math.random() * 0.8)
       .addScaledVector(up, 1.4 + Math.random() * 0.6)
@@ -178,6 +179,18 @@ export class CombatSystem {
     });
   }
 
+  _getCombatObjects() {
+    const objects = [];
+    if (this.playerManager) {
+      objects.push(...this.playerManager.getAllHitMeshes());
+    }
+    this.targetDummies.forEach(dummy => {
+      if (!dummy.isDead) objects.push(...dummy.hitMeshes);
+    });
+    objects.push(...this.arenaShootables);
+    return objects;
+  }
+
   _executeSingleRay(pelletIndex) {
     const spreadFactor = this.isAiming ? 0.35 : 1.0;
     const baseSpread = this.weaponConfig.spread * spreadFactor;
@@ -192,90 +205,34 @@ export class CombatSystem {
       spreadY = Math.sin(angle) * radius;
     }
 
+    const ballistics = WEAPON_BALLISTICS[this.currentWeaponKey];
+
+    // Se for modo Projétil com Trajetória e Gravidade (Sniper)
+    if (ballistics && ballistics.mode === 'projectile' && this.ballisticsSystem) {
+      return this._fireProjectile(spreadX, spreadY, ballistics);
+    }
+
+    // Modo Hitscan instantâneo (M4A1, MP5, Shotgun)
+    return this._fireHitscan(spreadX, spreadY, pelletIndex);
+  }
+
+  _fireHitscan(spreadX, spreadY, pelletIndex) {
     const screenCenter = new THREE.Vector2(spreadX, spreadY);
     this.raycaster.setFromCamera(screenCenter, this.camera);
     this.raycaster.far = this.weaponConfig.range;
 
-    // Coleta objetos testáveis (Jogadores Remotos + Dummies + Arena)
-    const testObjects = [];
-    if (this.playerManager) {
-      testObjects.push(...this.playerManager.getAllHitMeshes());
-    }
-    this.targetDummies.forEach(dummy => {
-      if (!dummy.isDead) testObjects.push(...dummy.hitMeshes);
-    });
-    testObjects.push(...this.arenaShootables);
-
+    const testObjects = this._getCombatObjects();
     const intersects = this.raycaster.intersectObjects(testObjects, false);
     const muzzlePos = this.weaponSystem.getMuzzleWorldPosition();
+
     let hitPoint = null;
     let hitNormal = null;
-    let targetPlayerId = null;
-    let isHeadshot = false;
 
     if (intersects.length > 0) {
       const hit = intersects[0];
       hitPoint = hit.point;
       hitNormal = hit.face ? hit.face.normal : new THREE.Vector3(0, 1, 0);
-
-      // 1. Acerto em Outro Operador (Multiplayer)
-      if (hit.object.userData && hit.object.userData.isRemotePlayer) {
-        targetPlayerId = hit.object.userData.playerId;
-        isHeadshot = !!hit.object.userData.isHead;
-
-        if (pelletIndex === 0) {
-          if (this.profileManager) this.profileManager.recordShot(true);
-          if (isHeadshot) {
-            this.audioSystem.playHeadshot();
-            this.hudSystem.showHitmarker('headshot');
-          } else {
-            this.audioSystem.playHitmarker();
-            this.hudSystem.showHitmarker('body');
-          }
-        }
-
-        this._spawnImpactParticles(hitPoint, hitNormal, 0xff2222, 6);
-      }
-      // 2. Acerto em Manequim de Treino Local
-      else if (hit.object.userData && hit.object.userData.isDummy) {
-        const dummy = hit.object.userData.target;
-        isHeadshot = !!hit.object.userData.isHead;
-        let dmg = this.weaponConfig.damage;
-        if (isHeadshot) dmg *= this.weaponConfig.headshotMultiplier;
-
-        if (pelletIndex === 0 && this.profileManager) {
-          this.profileManager.recordShot(true);
-          this.profileManager.recordDamage(dmg);
-        }
-
-        dummy.takeDamage(dmg, isHeadshot, () => {
-          this.audioSystem.playKillSound();
-          if (this.profileManager) {
-            this.profileManager.recordKill(isHeadshot);
-          }
-          this.hudSystem.showKillNotification(`🎯 ALVO ELIMINADO (+${isHeadshot ? 125 : 100} XP)`);
-        });
-
-        if (pelletIndex === 0) {
-          if (isHeadshot) {
-            this.audioSystem.playHeadshot();
-            this.hudSystem.showHitmarker('headshot');
-          } else {
-            this.audioSystem.playHitmarker();
-            this.hudSystem.showHitmarker('body');
-          }
-        }
-
-        this._spawnFloatingDamage(hitPoint, dmg, isHeadshot);
-        this._spawnImpactParticles(hitPoint, hitNormal, 0xff2222, 6);
-      }
-      // 3. Acerto em Estruturas da Arena (Concreto/Metal)
-      else {
-        if (pelletIndex === 0 && this.profileManager) {
-          this.profileManager.recordShot(false);
-        }
-        this._spawnImpactParticles(hitPoint, hitNormal, 0xffbb44, 5);
-      }
+      this._processHit(hit, pelletIndex);
     } else {
       if (pelletIndex === 0 && this.profileManager) {
         this.profileManager.recordShot(false);
@@ -285,7 +242,7 @@ export class CombatSystem {
       );
     }
 
-    // Traçante de bala balístico amarelo/alaranjado
+    // Traçante de bala balístico
     this._spawnTracer(muzzlePos, hitPoint, 0xffdd66);
 
     // Notifica o servidor autoritativo
@@ -295,13 +252,107 @@ export class CombatSystem {
         this.camera.position,
         this.raycaster.ray.direction,
         hitPoint,
-        targetPlayerId,
-        isHeadshot
+        null,
+        false
       );
     }
   }
 
-  // Renderiza tiro de outro jogador remoto
+  _fireProjectile(spreadX, spreadY, config) {
+    const direction = new THREE.Vector3(spreadX, spreadY, -1);
+    direction.unproject(this.camera).sub(this.camera.position).normalize();
+
+    const origin = this.weaponSystem.getMuzzleWorldPosition();
+
+    this.ballisticsSystem.createProjectile({
+      origin,
+      direction,
+      speed: config.projectileSpeed,
+      gravityScale: config.gravityScale,
+      maxDistance: config.maxDistance,
+      color: 0xffe0a1,
+      targetObjects: this._getCombatObjects(),
+      onHit: (hit) => {
+        this._processHit(hit, 0);
+      }
+    });
+
+    if (this.networkManager) {
+      this.networkManager.sendShoot(
+        this.currentWeaponKey,
+        this.camera.position,
+        direction,
+        null,
+        null,
+        false
+      );
+    }
+  }
+
+  _processHit(hit, pelletIndex = 0) {
+    const hitPoint = hit.point;
+    const hitNormal = hit.face ? hit.face.normal : new THREE.Vector3(0, 1, 0);
+
+    // 1. Acerto em Outro Operador (Multiplayer)
+    if (hit.object.userData && hit.object.userData.isRemotePlayer) {
+      const isHeadshot = !!hit.object.userData.isHead;
+      const targetPlayerId = hit.object.userData.playerId;
+
+      if (pelletIndex === 0) {
+        if (this.profileManager) this.profileManager.recordShot(true);
+        if (isHeadshot) {
+          this.audioSystem.playHeadshot();
+          this.hudSystem.showHitmarker('headshot');
+        } else {
+          this.audioSystem.playHitmarker();
+          this.hudSystem.showHitmarker('body');
+        }
+      }
+
+      this._spawnImpactParticles(hitPoint, hitNormal, 0xff2222, 6);
+    }
+    // 2. Acerto em Bot / Manequim Inimigo
+    else if (hit.object.userData && hit.object.userData.isDummy) {
+      const dummy = hit.object.userData.target;
+      const isHeadshot = !!hit.object.userData.isHead;
+      let dmg = this.weaponConfig.damage;
+      if (isHeadshot) dmg *= this.weaponConfig.headshotMultiplier;
+
+      if (pelletIndex === 0 && this.profileManager) {
+        this.profileManager.recordShot(true);
+        this.profileManager.recordDamage(dmg);
+      }
+
+      dummy.takeDamage(dmg, isHeadshot, () => {
+        this.audioSystem.playKillSound();
+        if (this.profileManager) {
+          this.profileManager.recordKill(isHeadshot);
+        }
+        this.hudSystem.showKillNotification(`🎯 INIMIGO ELIMINADO (+${isHeadshot ? 125 : 100} XP)`);
+      });
+
+      if (pelletIndex === 0) {
+        if (isHeadshot) {
+          this.audioSystem.playHeadshot();
+          this.hudSystem.showHitmarker('headshot');
+        } else {
+          this.audioSystem.playHitmarker();
+          this.hudSystem.showHitmarker('body');
+        }
+      }
+
+      this._spawnFloatingDamage(hitPoint, dmg, isHeadshot);
+      this._spawnImpactParticles(hitPoint, hitNormal, 0xff2222, 6);
+    }
+    // 3. Acerto em Estruturas da Arena (Concreto, Areia, Metal)
+    else {
+      if (pelletIndex === 0 && this.profileManager) {
+        this.profileManager.recordShot(false);
+      }
+      this._spawnImpactParticles(hitPoint, hitNormal, 0xffbb44, 5);
+    }
+  }
+
   handleRemotePlayerShot(data) {
     if (data.origin && data.hitPoint) {
       const start = new THREE.Vector3(data.origin.x, data.origin.y, data.origin.z);
@@ -309,7 +360,6 @@ export class CombatSystem {
       this._spawnTracer(start, end, 0xffcc44);
       this._spawnImpactParticles(end, new THREE.Vector3(0, 1, 0), 0xffaa33, 4);
     }
-    // Toca som de tiro do outro jogador
     this.audioSystem.playGunshot(data.weapon || 'm4a1');
   }
 
@@ -359,12 +409,11 @@ export class CombatSystem {
     this.hudSystem.updateAmmo(currentAmmo.inMag, currentAmmo.reserve, this.weaponConfig.magazineSize);
   }
 
-  _spawnTracer(start, end, colorHex = 0xffdd66) {
+  _spawnTracer(start, end, color = 0xffdd66) {
     const material = new THREE.LineBasicMaterial({
-      color: colorHex,
+      color,
       transparent: true,
-      opacity: 0.95,
-      linewidth: 2
+      opacity: 0.85
     });
 
     const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
@@ -372,91 +421,69 @@ export class CombatSystem {
     this.scene.add(line);
 
     this.tracers.push({
-      mesh: line,
-      lifetime: 0.06,
+      line,
+      lifetime: 0.08,
       age: 0
     });
   }
 
-  _spawnImpactParticles(position, normal, colorHex, count = 5) {
-    const geo = new THREE.BufferGeometry();
-    const positions = [];
-    const velocities = [];
+  _spawnImpactParticles(position, normal, color = 0xffbb44, count = 5) {
+    const group = new THREE.Group();
+    group.position.copy(position);
 
     for (let i = 0; i < count; i++) {
-      positions.push(position.x, position.y, position.z);
-      const vx = (normal.x + (Math.random() - 0.5) * 1.5) * (2 + Math.random() * 4);
-      const vy = (normal.y + (Math.random() - 0.5) * 1.5) * (2 + Math.random() * 4);
-      const vz = (normal.z + (Math.random() - 0.5) * 1.5) * (2 + Math.random() * 4);
-      velocities.push(new THREE.Vector3(vx, vy, vz));
+      const particleGeo = new THREE.SphereGeometry(0.025, 4, 4);
+      const particleMat = new THREE.MeshBasicMaterial({ color });
+      const particle = new THREE.Mesh(particleGeo, particleMat);
+
+      const vel = normal.clone().multiplyScalar(2 + Math.random() * 3);
+      vel.x += (Math.random() - 0.5) * 4;
+      vel.y += (Math.random() - 0.5) * 4;
+      vel.z += (Math.random() - 0.5) * 4;
+
+      particle.userData = { velocity: vel };
+      group.add(particle);
     }
 
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-
-    const mat = new THREE.PointsMaterial({
-      color: colorHex,
-      size: 0.08,
-      transparent: true,
-      opacity: 1
-    });
-
-    const points = new THREE.Points(geo, mat);
-    this.scene.add(points);
-
+    this.scene.add(group);
     this.particles.push({
-      points,
-      velocities,
-      positions,
-      lifetime: 0.22,
+      group,
+      lifetime: 0.25,
       age: 0
     });
   }
 
-  _spawnFloatingDamage(position, amount, isHeadshot) {
+  _spawnFloatingDamage(worldPos, damage, isHeadshot) {
     const canvas = document.createElement('canvas');
-    canvas.width = 160;
-    canvas.height = 80;
+    canvas.width = 128;
+    canvas.height = 64;
     const ctx = canvas.getContext('2d');
 
+    ctx.fillStyle = isHeadshot ? '#ef4444' : '#ffffff';
     ctx.font = isHeadshot ? 'bold 36px monospace' : 'bold 28px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-
-    ctx.fillStyle = isHeadshot ? '#fbbf24' : '#ffffff';
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 4;
-
-    const text = isHeadshot ? `⚡${Math.round(amount)}` : `${Math.round(amount)}`;
-    ctx.strokeText(text, 80, 40);
-    ctx.fillText(text, 80, 40);
+    ctx.fillText(`${Math.round(damage)}`, 64, 32);
 
     const texture = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({
+    const spriteMat = new THREE.SpriteMaterial({
       map: texture,
       transparent: true,
-      opacity: 1,
       depthTest: false
     });
 
-    const sprite = new THREE.Sprite(mat);
-    sprite.position.set(
-      position.x + (Math.random() - 0.5) * 0.3,
-      position.y + 0.25,
-      position.z + (Math.random() - 0.5) * 0.3
-    );
-    sprite.scale.set(0.7, 0.35, 1);
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.position.copy(worldPos);
+    sprite.position.y += 0.5;
+    sprite.scale.set(0.8, 0.4, 1);
     this.scene.add(sprite);
 
     this.floatingTexts.push({
       sprite,
-      velocity: new THREE.Vector3(0, 1.2, 0),
-      lifetime: 0.65,
-      age: 0
+      texture,
+      age: 0,
+      lifetime: 0.6
     });
-  }
-
-  spawnDamageNumberAt(position, amount, isHeadshot) {
-    this._spawnFloatingDamage(position, amount, isHeadshot);
   }
 
   update(deltaTime, currentTime) {
@@ -464,84 +491,79 @@ export class CombatSystem {
       this._finishReload();
     }
 
-    // Traçantes
+    // 1. Atualiza Traçantes
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i];
       t.age += deltaTime;
-      t.mesh.material.opacity = 1 - (t.age / t.lifetime);
+      t.line.material.opacity = 0.85 * (1 - t.age / t.lifetime);
+
       if (t.age >= t.lifetime) {
-        this.scene.remove(t.mesh);
-        t.mesh.geometry.dispose();
-        t.mesh.material.dispose();
+        this.scene.remove(t.line);
+        t.line.geometry.dispose();
+        t.line.material.dispose();
         this.tracers.splice(i, 1);
       }
     }
 
-    // Partículas
+    // 2. Atualiza Partículas de Impacto
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.age += deltaTime;
       const progress = p.age / p.lifetime;
 
-      const posAttr = p.points.geometry.attributes.position;
-      for (let j = 0; j < p.velocities.length; j++) {
-        p.positions[j * 3] += p.velocities[j].x * deltaTime;
-        p.positions[j * 3 + 1] += (p.velocities[j].y - 9.8 * deltaTime) * deltaTime;
-        p.positions[j * 3 + 2] += p.velocities[j].z * deltaTime;
-      }
-      posAttr.copyArray(p.positions);
-      posAttr.needsUpdate = true;
-      p.points.material.opacity = 1 - progress;
+      p.group.children.forEach(mesh => {
+        mesh.position.addScaledVector(mesh.userData.velocity, deltaTime);
+        mesh.userData.velocity.y -= 9.8 * deltaTime;
+        mesh.scale.setScalar(1 - progress);
+      });
 
       if (p.age >= p.lifetime) {
-        this.scene.remove(p.points);
-        p.points.geometry.dispose();
-        p.points.material.dispose();
+        this.scene.remove(p.group);
+        p.group.children.forEach(m => {
+          m.geometry.dispose();
+          m.material.dispose();
+        });
         this.particles.splice(i, 1);
       }
     }
 
-    // Textos de Dano
-    for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
-      const ft = this.floatingTexts[i];
-      ft.age += deltaTime;
-      const progress = ft.age / ft.lifetime;
-
-      ft.sprite.position.addScaledVector(ft.velocity, deltaTime);
-      ft.sprite.material.opacity = 1 - Math.pow(progress, 2);
-
-      if (ft.age >= ft.lifetime) {
-        this.scene.remove(ft.sprite);
-        ft.sprite.material.map.dispose();
-        ft.sprite.material.dispose();
-        this.floatingTexts.splice(i, 1);
-      }
-    }
-
-    // Cápsulas de Cartuchos 3D (Física e Rotação)
+    // 3. Atualiza Ejeção de Cápsulas de Cartuchos 3D
     for (let i = this.shellCasings.length - 1; i >= 0; i--) {
       const c = this.shellCasings[i];
       c.age += deltaTime;
 
-      // Gravidade
-      c.velocity.y -= 16.0 * deltaTime;
       c.mesh.position.addScaledVector(c.velocity, deltaTime);
+      c.velocity.y -= 14.0 * deltaTime;
 
-      // Rotação tridimensional
       c.mesh.rotation.x += c.rotVelocity.x * deltaTime;
       c.mesh.rotation.y += c.rotVelocity.y * deltaTime;
       c.mesh.rotation.z += c.rotVelocity.z * deltaTime;
 
-      // Não afunda no chão (y = 0.02)
-      if (c.mesh.position.y <= 0.02) {
-        c.mesh.position.y = 0.02;
+      if (c.mesh.position.y <= 0.05) {
+        c.mesh.position.y = 0.05;
         c.velocity.set(0, 0, 0);
         c.rotVelocity.set(0, 0, 0);
       }
 
       if (c.age >= c.lifetime) {
         this.scene.remove(c.mesh);
+        c.mesh.geometry.dispose();
         this.shellCasings.splice(i, 1);
+      }
+    }
+
+    // 4. Atualiza Textos Flutuantes de Dano
+    for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
+      const ft = this.floatingTexts[i];
+      ft.age += deltaTime;
+      ft.sprite.position.y += deltaTime * 1.2;
+      ft.sprite.material.opacity = 1 - ft.age / ft.lifetime;
+
+      if (ft.age >= ft.lifetime) {
+        this.scene.remove(ft.sprite);
+        ft.texture.dispose();
+        ft.sprite.material.dispose();
+        this.floatingTexts.splice(i, 1);
       }
     }
   }
